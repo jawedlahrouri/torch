@@ -28,16 +28,6 @@ class Activation_Softmax:
         probabilities = exp_values / np.sum(exp_values, axis=1, keepdim=True)
         self.output=probabilities
 
-layer1 = Layer_Dense(2, 5)
-activation1 = Activation_ReLU()
-
-layer1.forward(X)
-
-#print(layer1.output)
-
-activation1.forward(layer1.output)
-print(activation1.output)
-
 X,y = spiral_data(samples=100, classes=3)
 
 dense1 = Layer_Dense(2, 3)
