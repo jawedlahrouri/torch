@@ -4,6 +4,10 @@ import os
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(ROOT, "src"), os.path.join(ROOT, "src", "neural_network.py")]
+import numpy as np
+from neural_network import NeuralNetwork
+from fen_parser import load_dataset, format_label, LABELS, N_FEATURES
+
 
 def print_err(msg: str):
     sys.stderr.write(f"Error: {msg}\n")
@@ -113,13 +117,6 @@ def main():
     if not os.path.isfile(chessfile):
         print_err(f"CHESSFILE does not exist: {chessfile}")
 
-    try:
-        import numpy as np
-        from neural_network import NeuralNetwork
-        from fen_parser import load_dataset, format_label, LABELS, N_FEATURES
-    except ImportError as e:
-        print_err(f"Cannot import modules: {e}")
-
     target_save = savefile if savefile is not None else loadfile
     if mode == "train":
         check_writable(target_save)
@@ -132,7 +129,7 @@ def main():
         if mode == "train":
             nn.train(X, y, epochs=500, print_every=50)
             if not all(np.isfinite(l.weights).all() and np.isfinite(l.biases).all()
-                       for l in nn.trainable_layers):
+                    for l in nn.trainable_layers):
                 print_err("Training diverged (NaN weights): network not saved.")
             save_atomic(nn, target_save)
         else:
