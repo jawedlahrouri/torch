@@ -4,6 +4,8 @@ import os
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(ROOT, "src"), os.path.join(ROOT, "src", "neural_network.py")]
+from neural_network import NeuralNetwork
+
 
 def print_err(msg: str):
     sys.stderr.write(f"Error: {msg}\n")
@@ -40,11 +42,6 @@ def main():
 
     if len(args) == 0 or len(args) % 2 != 0:
         print_err("Invalid number of arguments (pairs of config_file nb expected).")
-
-    try:
-        from neural_network import NeuralNetwork
-    except ImportError as e:
-        print_err(f"Cannot import modules: {e}")
 
     for i in range(0, len(args), 2):
         conf_path = args[i]
