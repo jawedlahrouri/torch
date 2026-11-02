@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+import sys
+import os
+from neural_network import NeuralNetwork
+
+def print_err(msg: str):
+    sys.stderr.write(f"Error: {msg}\n")
+    sys.exit(84)
+
+def print_help():
+    print(
+        "USAGE\n"
+        "        ./my_torch_generator config_file_1 nb_1 [config_file_2 nb_2...]\n\n"
+        "DESCRIPTION\n"
+        "        config_file_i   Configuration file containing description of a neural network we want to\n"
+        "generate.\n"
+        "        nb_i            Number of neural networks to generate based on the configuration file."
+    )
+
+def parse_config(filepath: str) -> list[int]:
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            layers = [int(x) for x in content.replace(",", " ").split()]
+            if len(layers) < 2:
+                raise ValueError("A network must have at least 2 layers.")
+            return layers
+    except Exception as e:
+        print_err(f"Invalid config file {filepath}: {e}")
+
+def main():
+    args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        print_help()
+        sys.exit(0)
+
+    if len(args) == 0 or len(args) % 2 != 0:
+        print_err("Invalid number of arguments (pairs of config_file nb expected).")
+
+    for i in range(0, len(args), 2):
+        conf_path = args[i]
+        nb_str = args[i + 1]
+
+        if not os.path.isfile(conf_path):
+            print_err(f"File not found: {conf_path}")
+
+        try:
+            nb = int(nb_str)
+            if nb <= 0:
+                raise ValueError()
+        except ValueError:
+            print_err(f"Invalid number: {nb_str}")
+
+        layers = parse_config(conf_path)
+        base_name = os.path.splitext(os.path.basename(conf_path))[0]
+
+        for n in range(1, nb + 1):
+            out_filename = f"{base_name}_{n}.nn"
+            try:
+                nn = NeuralNetwork(layers)
+                nn.save(out_filename)
+            except Exception as e:
+                print_err(f"Failed to generate {out_filename}: {e}")
+
+if __name__ == "__main__":
+    main()
