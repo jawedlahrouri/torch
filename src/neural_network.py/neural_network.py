@@ -37,42 +37,28 @@ class NeuralNetwork:
         def forward(self, inputs):
             self.inputs = inputs
             exp_values = np.exp(inputs - np.max(inputs, axis=1, keepdims=True))
-            probabilities = exp_values / np.sum(exp_values, axis=1, keepdims=True)
-            self.output = probabilities
+            self.output = exp_values / np.sum(exp_values, axis=1, keepdims=True)
 
         def backward(self, dvalues):
-            self.dinputs = np.empty_like(dvalues)
-            for index, (single_output, single_dvalues) in enumerate(zip(self.output, dvalues)):
-                single_output = single_output.reshape(-1, 1)
-                jacobian_matrix = np.diagflat(single_output) - np.dot(single_output, single_output.T)
-                self.dinputs[index] = np.dot(jacobian_matrix, single_dvalues)
+            sum_sd = np.sum(self.output * dvalues, axis=1, keepdims=True)
+            self.dinputs = self.output * (dvalues - sum_sd)
 
     class Loss:
         def calculate(self, output, y):
-            sample_losses = self.forward(output, y)
-            data_loss = np.mean(sample_losses)
-            return data_loss
+            return np.mean(self.forward(output, y))
 
     class Loss_CategoricalCrossentropy(Loss):
         def forward(self, y_pred, y_true):
             samples = len(y_pred)
             y_pred_clipped = np.clip(y_pred, 1e-7, 1 - 1e-7)
-
-            if len(y_true.shape) == 1:
-                correct_confidences = y_pred_clipped[range(samples), y_true]
-            elif len(y_true.shape) == 2:
-                correct_confidences = np.sum(y_pred_clipped * y_true, axis=1)
-
-            negative_log_likelihoods = -np.log(correct_confidences)
-            return negative_log_likelihoods
+            target = np.argmax(y_true, axis=1) if y_true.ndim == 2 else y_true
+            return -np.log(y_pred_clipped[range(samples), target])
 
         def backward(self, dvalues, y_true):
             samples = len(dvalues)
-            labels = len(dvalues[0])
-            if len(y_true.shape) == 1:
-                y_true = np.eye(labels)[y_true]
-            self.dinputs = -y_true / dvalues
-            self.dinputs = self.dinputs / samples
+            if y_true.ndim == 1:
+                y_true = np.eye(dvalues.shape[1])[y_true]
+            self.dinputs = (-y_true / dvalues) / samples
 
     class Activation_Softmax_Loss_CategoricalCrossentropy:
         def __init__(self):
@@ -86,11 +72,10 @@ class NeuralNetwork:
 
         def backward(self, dvalues, y_true):
             samples = len(dvalues)
-            if len(y_true.shape) == 2:
-                y_true = np.argmax(y_true, axis=1)
+            target = np.argmax(y_true, axis=1) if y_true.ndim == 2 else y_true
             self.dinputs = dvalues.copy()
-            self.dinputs[range(samples), y_true] -= 1
-            self.dinputs = self.dinputs / samples
+            self.dinputs[range(samples), target] -= 1
+            self.dinputs /= samples
 
     class Optimizer_SGD:
         def __init__(self, learning_rate=1.0, decay=0.0, momentum=0.0):
@@ -122,7 +107,7 @@ class NeuralNetwork:
         def post_update_params(self):
             self.iterations += 1
 
-    def __init__(self, layer_sizes=None, loss_activation=None, loss=None, optimizer=None):
+    def __init__(self, layer_sizes=None, loss=None, loss_activation=None, optimizer=None):
         self.layers = []
         if layer_sizes:
             if isinstance(layer_sizes[0], int):
@@ -133,10 +118,9 @@ class NeuralNetwork:
             else:
                 self.layers = list(layer_sizes)
 
-        selected_loss = loss if loss is not None else loss_activation
-        self.loss_activation = selected_loss if selected_loss is not None else NeuralNetwork.Activation_Softmax_Loss_CategoricalCrossentropy()
-        self.loss = self.loss_activation
-        self.optimizer = optimizer if optimizer is not None else NeuralNetwork.Optimizer_SGD(learning_rate=1.0, decay=1e-3, momentum=0.9)
+        self.loss = loss or loss_activation or NeuralNetwork.Activation_Softmax_Loss_CategoricalCrossentropy()
+        self.loss_activation = self.loss
+        self.optimizer = optimizer or NeuralNetwork.Optimizer_SGD(learning_rate=1.0, decay=1e-3, momentum=0.9)
 
     def add(self, layer):
         self.layers.append(layer)
@@ -159,15 +143,12 @@ class NeuralNetwork:
         return dvalues
 
     def train_step(self, X, y):
-        output = self.forward(X)
-        loss = self.loss_activation.forward(output, y)
+        loss = self.loss.forward(self.forward(X), y)
+        y_true = np.argmax(y, axis=1) if y.ndim == 2 else y
+        accuracy = np.mean(np.argmax(self.loss.output, axis=1) == y_true)
 
-        predictions = np.argmax(self.loss_activation.output, axis=1)
-        y_true = np.argmax(y, axis=1) if len(y.shape) == 2 else y
-        accuracy = np.mean(predictions == y_true)
-
-        self.loss_activation.backward(self.loss_activation.output, y)
-        self.backward(self.loss_activation.dinputs)
+        self.loss.backward(self.loss.output, y)
+        self.backward(self.loss.dinputs)
 
         self.optimizer.pre_update_params()
         for layer in self.trainable_layers:
@@ -184,17 +165,14 @@ class NeuralNetwork:
 
     def predict(self, X):
         output = self.forward(X)
-        self.loss_activation.activation.forward(output)
-        return np.argmax(self.loss_activation.activation.output, axis=1)
+        self.loss.activation.forward(output)
+        return np.argmax(self.loss.activation.output, axis=1)
 
 
-Layer_Dense = NeuralNetwork.Layer_Dense
-Activation_ReLU = NeuralNetwork.Activation_ReLU
-Activation_Softmax = NeuralNetwork.Activation_Softmax
-Loss = NeuralNetwork.Loss
-Loss_CategoricalCrossentropy = NeuralNetwork.Loss_CategoricalCrossentropy
-Activation_Softmax_Loss_CategoricalCrossentropy = NeuralNetwork.Activation_Softmax_Loss_CategoricalCrossentropy
-Optimizer_SGD = NeuralNetwork.Optimizer_SGD
+for _cls in (NeuralNetwork.Layer_Dense, NeuralNetwork.Activation_ReLU, NeuralNetwork.Activation_Softmax,
+            NeuralNetwork.Loss, NeuralNetwork.Loss_CategoricalCrossentropy,
+            NeuralNetwork.Activation_Softmax_Loss_CategoricalCrossentropy, NeuralNetwork.Optimizer_SGD):
+    globals()[_cls.__name__] = _cls
 
 
 if __name__ == "__main__":
