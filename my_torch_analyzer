@@ -73,6 +73,8 @@ def check_network(nn, n_in, n_out):
     for a, b in zip(dense, dense[1:]):
         if a.weights.shape[1] != b.weights.shape[0]:
             raise ValueError("Invalid network: layer sizes do not chain.")
+    if not all(np.isfinite(l.weights).all() and np.isfinite(l.biases).all() for l in dense):
+        raise ValueError("Invalid network: non-finite weights (NaN or inf).")
     if dense[0].weights.shape[0] != n_in or dense[-1].weights.shape[1] != n_out:
         raise ValueError(
             f"Network has {dense[0].weights.shape[0]} inputs and {dense[-1].weights.shape[1]} outputs, "

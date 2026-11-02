@@ -43,6 +43,8 @@ def main():
     if len(args) == 0 or len(args) % 2 != 0:
         print_err("Invalid number of arguments (pairs of config_file nb expected).")
 
+    jobs = []
+    seen_names = set()
     for i in range(0, len(args), 2):
         conf_path = args[i]
         nb_str = args[i + 1]
@@ -59,7 +61,12 @@ def main():
 
         layers = parse_config(conf_path)
         base_name = os.path.splitext(os.path.basename(conf_path))[0]
+        if base_name in seen_names:
+            print_err(f"Output name collision: several config files named '{base_name}'.")
+        seen_names.add(base_name)
+        jobs.append((layers, base_name, nb))
 
+    for layers, base_name, nb in jobs:
         for n in range(1, nb + 1):
             out_filename = f"{base_name}_{n}.nn"
             try:
