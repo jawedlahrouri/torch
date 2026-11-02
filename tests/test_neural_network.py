@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 import numpy as np
@@ -82,3 +83,42 @@ def test_predict():
 
     assert predictions.shape == (30,)
     assert set(np.unique(predictions)).issubset({0, 1, 2})
+
+
+def test_save_and_load_binary(tmp_path):
+    filepath = str(tmp_path / "model.nn")
+    net = NeuralNetwork([2, 16, 8, 3])
+    X = np.random.randn(5, 2)
+    original_output = net.forward(X)
+
+    net.save(filepath)
+    assert os.path.exists(filepath)
+
+    loaded_net = NeuralNetwork.load(filepath)
+    assert len(loaded_net.layers) == len(net.layers)
+    loaded_output = loaded_net.forward(X)
+    assert np.allclose(original_output, loaded_output)
+
+
+def test_save_and_load_instance(tmp_path):
+    filepath = str(tmp_path / "model_instance.nn")
+    net = NeuralNetwork([2, 32, 3])
+    net.save(filepath)
+
+    empty_net = NeuralNetwork()
+    empty_net.load(filepath)
+    assert len(empty_net.layers) == len(net.layers)
+
+
+def test_save_and_load_json(tmp_path):
+    filepath = str(tmp_path / "model.json")
+    net = NeuralNetwork([2, 8, 3])
+    X = np.random.randn(4, 2)
+    original_output = net.forward(X)
+
+    net.save(filepath)
+    assert os.path.exists(filepath)
+
+    loaded_net = NeuralNetwork.load(filepath)
+    loaded_output = loaded_net.forward(X)
+    assert np.allclose(original_output, loaded_output)

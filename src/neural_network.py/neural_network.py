@@ -1,3 +1,6 @@
+import json
+import os
+import pickle
 import sys
 import numpy as np
 import nnfs
@@ -8,6 +11,11 @@ number_pawn = 32
 
 nnfs.init()
 
+class _DualLoad:
+    def __get__(self, instance, owner):
+        if instance is None:
+            return owner._load_from_file
+        return instance._load_into_self
 
 class NeuralNetwork:
     class Layer_Dense:
@@ -168,6 +176,65 @@ class NeuralNetwork:
         self.loss.activation.forward(output)
         return np.argmax(self.loss.activation.output, axis=1)
 
+    def save(self, filepath):
+        structure = []
+        for layer in self.layers:
+            if isinstance(layer, NeuralNetwork.Layer_Dense):
+                structure.append({
+                    "type": "Layer_Dense",
+                    "weights": layer.weights,
+                    "biases": layer.biases,
+                })
+            else:
+                structure.append({"type": layer.__class__.__name__})
+
+        if str(filepath).endswith(".json"):
+            json_structure = []
+            for item in structure:
+                if item["type"] == "Layer_Dense":
+                    json_structure.append({
+                        "type": "Layer_Dense",
+                        "weights": item["weights"].tolist(),
+                        "biases": item["biases"].tolist(),
+                    })
+                else:
+                    json_structure.append(item)
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(json_structure, f, indent=2)
+        else:
+            with open(filepath, "wb") as f:
+                pickle.dump(structure, f)
+
+    @classmethod
+    def _load_from_file(cls, filepath):
+        instance = cls()
+        return instance._load_into_self(filepath)
+
+    def _load_into_self(self, filepath):
+        structure = None
+        try:
+            with open(filepath, "rb") as f:
+                structure = pickle.load(f)
+        except Exception:
+            with open(filepath, "r", encoding="utf-8") as f:
+                structure = json.load(f)
+
+        self.layers = []
+        for item in structure:
+            layer_type = item["type"]
+            if layer_type == "Layer_Dense":
+                weights = np.array(item["weights"])
+                biases = np.array(item["biases"])
+                dense = NeuralNetwork.Layer_Dense(weights.shape[0], weights.shape[1])
+                dense.weights = weights
+                dense.biases = biases
+                self.layers.append(dense)
+            elif hasattr(NeuralNetwork, layer_type):
+                self.layers.append(getattr(NeuralNetwork, layer_type)())
+        return self
+
+    load = _DualLoad()
+
 
 for _cls in (NeuralNetwork.Layer_Dense, NeuralNetwork.Activation_ReLU, NeuralNetwork.Activation_Softmax,
             NeuralNetwork.Loss, NeuralNetwork.Loss_CategoricalCrossentropy,
@@ -180,6 +247,12 @@ if __name__ == "__main__":
 
     nn = NeuralNetwork([2, 64, 3])
     nn.train(X, y, epochs=1001, print_every=200)
+    nn.save("spiral_model.nn")
+    loaded_nn = NeuralNetwork.load("spiral_model.nn")
+    assert np.allclose(nn.forward(X), loaded_nn.forward(X))
+    print(f"\nModèle exporté et rechargé avec succès ({len(loaded_nn.layers)} couches).")
+    if os.path.exists("spiral_model.nn"):
+        os.remove("spiral_model.nn")
     chess_architectures = [
         [768, 256, 128, 64, 3],
         [768, 128, 64, 3],
