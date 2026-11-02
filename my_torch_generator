@@ -6,10 +6,13 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(ROOT, "src"), os.path.join(ROOT, "src", "neural_network.py")]
 from neural_network import NeuralNetwork
 
+EXIT_ERROR = 84
+MIN_LAYERS = 2
 
-def print_err(msg: str):
+
+def fail(msg: str):
     sys.stderr.write(f"Error: {msg}\n")
-    sys.exit(84)
+    sys.exit(EXIT_ERROR)
 
 def print_help():
     print(
@@ -23,16 +26,15 @@ def print_help():
 
 def parse_config(filepath: str) -> list[int]:
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            layers = [int(x) for x in content.replace(",", " ").split()]
-            if len(layers) < 2:
-                raise ValueError("A network must have at least 2 layers.")
-            if any(n <= 0 for n in layers):
-                raise ValueError("Layer sizes must be positive.")
-            return layers
-    except Exception as e:
-        print_err(f"Invalid config file {filepath}: {e}")
+        with open(filepath, encoding="utf-8") as file:
+            layers = [int(token) for token in file.read().replace(",", " ").split()]
+        if len(layers) < MIN_LAYERS:
+            raise ValueError(f"A network must have at least {MIN_LAYERS} layers.")
+        if any(size <= 0 for size in layers):
+            raise ValueError("Layer sizes must be positive.")
+        return layers
+    except Exception as error:
+        fail(f"Invalid config file {filepath}: {error}")
 
 def main():
     args = sys.argv[1:]
@@ -40,40 +42,37 @@ def main():
         print_help()
         sys.exit(0)
 
-    if len(args) == 0 or len(args) % 2 != 0:
-        print_err("Invalid number of arguments (pairs of config_file nb expected).")
+    if not args or len(args) % 2:
+        fail("Invalid number of arguments (pairs of config_file nb expected).")
 
     jobs = []
     seen_names = set()
-    for i in range(0, len(args), 2):
-        conf_path = args[i]
-        nb_str = args[i + 1]
-
+    for conf_path, count_text in zip(args[::2], args[1::2]):
         if not os.path.isfile(conf_path):
-            print_err(f"File not found: {conf_path}")
+            fail(f"File not found: {conf_path}")
 
         try:
-            nb = int(nb_str)
-            if nb <= 0:
-                raise ValueError()
+            count = int(count_text)
         except ValueError:
-            print_err(f"Invalid number: {nb_str}")
+            count = 0
+        if count <= 0:
+            fail(f"Invalid number: {count_text}")
 
         layers = parse_config(conf_path)
         base_name = os.path.splitext(os.path.basename(conf_path))[0]
         if base_name in seen_names:
-            print_err(f"Output name collision: several config files named '{base_name}'.")
+            fail(f"Output name collision: several config files named '{base_name}'.")
         seen_names.add(base_name)
-        jobs.append((layers, base_name, nb))
+        jobs.append((layers, base_name, count))
 
-    for layers, base_name, nb in jobs:
-        for n in range(1, nb + 1):
-            out_filename = f"{base_name}_{n}.nn"
+    # everything is validated: nothing is written if one pair is invalid
+    for layers, base_name, count in jobs:
+        for index in range(1, count + 1):
+            out_filename = f"{base_name}_{index}.nn"
             try:
-                nn = NeuralNetwork(layers)
-                nn.save(out_filename)
-            except Exception as e:
-                print_err(f"Failed to generate {out_filename}: {e}")
+                NeuralNetwork(layers).save(out_filename)
+            except Exception as error:
+                fail(f"Failed to generate {out_filename}: {error}")
 
 if __name__ == "__main__":
     main()

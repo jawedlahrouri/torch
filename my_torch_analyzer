@@ -8,10 +8,15 @@ import numpy as np
 from neural_network import NeuralNetwork
 from fen_parser import load_dataset, format_label, LABELS, N_FEATURES
 
+EXIT_ERROR = 84
+EPOCHS = 500
+PRINT_EVERY = 50
+PREDICT_CHUNK = 4096
 
-def print_err(msg: str):
+
+def fail(msg: str):
     sys.stderr.write(f"Error: {msg}\n")
-    sys.exit(84)
+    sys.exit(EXIT_ERROR)
 
 def print_help():
     print(
@@ -29,66 +34,63 @@ def print_help():
         "        CHESSFILE       File containing chessboards"
     )
 
-def select_mods(args):
+def parse_args(args):
     mode = None
     savefile = None
     positional = []
 
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg == "--train":
+    remaining = iter(args)
+    for arg in remaining:
+        if arg in ("--train", "--predict"):
             if mode is not None:
-                print_err("Conflicting modes.")
-            mode = "train"
-        elif arg == "--predict":
-            if mode is not None:
-                print_err("Conflicting modes.")
-            mode = "predict"
+                fail("Conflicting modes.")
+            mode = arg[2:]
         elif arg == "--save":
             if savefile is not None:
-                print_err("--save specified twice.")
-            if i + 1 >= len(args):
-                print_err("Missing argument for --save.")
-            savefile = args[i + 1]
-            i += 1
+                fail("--save specified twice.")
+            savefile = next(remaining, None)
+            if savefile is None:
+                fail("Missing argument for --save.")
         elif arg.startswith("-"):
-            print_err(f"Unknown flag: {arg}")
+            fail(f"Unknown flag: {arg}")
         else:
             positional.append(arg)
-        i += 1
 
     return mode, savefile, positional
 
 def check_writable(path):
-    d = os.path.dirname(os.path.abspath(path))
-    if os.path.isdir(path) or not os.access(d, os.W_OK) \
+    directory = os.path.dirname(os.path.abspath(path))
+    if os.path.isdir(path) or not os.access(directory, os.W_OK) \
             or (os.path.exists(path) and not os.access(path, os.W_OK)):
-        print_err(f"Cannot write to {path}")
+        fail(f"Cannot write to {path}")
 
-def check_network(nn, n_in, n_out):
-    dense = nn.trainable_layers
-    if not dense:
+def weights_are_finite(layers):
+    return all(np.isfinite(layer.weights).all() and np.isfinite(layer.biases).all() for layer in layers)
+
+def check_network(nn, n_inputs, n_outputs):
+    layers = nn.trainable_layers
+    if not layers:
         raise ValueError("Invalid network: no dense layer.")
-    for a, b in zip(dense, dense[1:]):
-        if a.weights.shape[1] != b.weights.shape[0]:
+    for previous, following in zip(layers, layers[1:]):
+        if previous.weights.shape[1] != following.weights.shape[0]:
             raise ValueError("Invalid network: layer sizes do not chain.")
-    if not all(np.isfinite(l.weights).all() and np.isfinite(l.biases).all() for l in dense):
+    if not weights_are_finite(layers):
         raise ValueError("Invalid network: non-finite weights (NaN or inf).")
-    if dense[0].weights.shape[0] != n_in or dense[-1].weights.shape[1] != n_out:
+    actual_inputs, actual_outputs = layers[0].weights.shape[0], layers[-1].weights.shape[1]
+    if actual_inputs != n_inputs or actual_outputs != n_outputs:
         raise ValueError(
-            f"Network has {dense[0].weights.shape[0]} inputs and {dense[-1].weights.shape[1]} outputs, "
-            f"expected {n_in} and {n_out}.")
+            f"Network has {actual_inputs} inputs and {actual_outputs} outputs, "
+            f"expected {n_inputs} and {n_outputs}.")
 
 def save_atomic(nn, path):
-    d, base = os.path.split(os.path.abspath(path))
-    tmp = os.path.join(d, ".tmp_" + base)
+    directory, name = os.path.split(os.path.abspath(path))
+    tmp_path = os.path.join(directory, ".tmp_" + name)
     try:
-        nn.save(tmp)
-        os.replace(tmp, path)
+        nn.save(tmp_path)
+        os.replace(tmp_path, path)
     finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 def write_stdout(text):
     try:
@@ -98,26 +100,38 @@ def write_stdout(text):
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         sys.exit(0)
 
+def run_train(nn, X, y, target_save):
+    nn.train(X, y, epochs=EPOCHS, print_every=PRINT_EVERY)
+    if not weights_are_finite(nn.trainable_layers):
+        fail("Training diverged (NaN weights): network not saved.")
+    save_atomic(nn, target_save)
+
+def run_predict(nn, X, colors):
+    predictions = np.concatenate([nn.predict(X[start:start + PREDICT_CHUNK])
+                                for start in range(0, len(X), PREDICT_CHUNK)])
+    write_stdout("".join(format_label(int(label_index), color) + "\n"
+                        for label_index, color in zip(predictions, colors)))
+
 def main():
     args = sys.argv[1:]
     if "-h" in args or "--help" in args:
         print_help()
         sys.exit(0)
 
-    mode, savefile, positional = select_mods(args)
+    mode, savefile, positional = parse_args(args)
 
     if mode is None:
-        print_err("Must specify --train or --predict.")
+        fail("Must specify --train or --predict.")
     if mode == "predict" and savefile is not None:
-        print_err("--save cannot be used with --predict.")
+        fail("--save cannot be used with --predict.")
     if len(positional) != 2:
-        print_err("Expected LOADFILE and CHESSFILE.")
+        fail("Expected LOADFILE and CHESSFILE.")
 
-    loadfile, chessfile = positional[0], positional[1]
+    loadfile, chessfile = positional
     if not os.path.isfile(loadfile):
-        print_err(f"LOADFILE does not exist: {loadfile}")
+        fail(f"LOADFILE does not exist: {loadfile}")
     if not os.path.isfile(chessfile):
-        print_err(f"CHESSFILE does not exist: {chessfile}")
+        fail(f"CHESSFILE does not exist: {chessfile}")
 
     target_save = savefile if savefile is not None else loadfile
     if mode == "train":
@@ -129,19 +143,13 @@ def main():
         X, y, colors = load_dataset(chessfile, is_train=(mode == "train"))
 
         if mode == "train":
-            nn.train(X, y, epochs=500, print_every=50)
-            if not all(np.isfinite(l.weights).all() and np.isfinite(l.biases).all()
-                    for l in nn.trainable_layers):
-                print_err("Training diverged (NaN weights): network not saved.")
-            save_atomic(nn, target_save)
+            run_train(nn, X, y, target_save)
         else:
-            chunk = 4096
-            preds = np.concatenate([nn.predict(X[i:i + chunk]) for i in range(0, len(X), chunk)])
-            write_stdout("".join(format_label(int(p), c) + "\n" for p, c in zip(preds, colors)))
+            run_predict(nn, X, colors)
     except KeyboardInterrupt:
-        print_err("Interrupted.")
-    except Exception as e:
-        print_err(str(e))
+        fail("Interrupted.")
+    except Exception as error:
+        fail(str(error))
 
 if __name__ == "__main__":
     main()
