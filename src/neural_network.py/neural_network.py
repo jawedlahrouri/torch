@@ -3,13 +3,20 @@ import os
 import pickle
 import sys
 import numpy as np
-import nnfs
-from nnfs.datasets import spiral_data
 
 number_case = 64
 number_pawn = 32
 
-nnfs.init()
+def spiral_data(points, classes):
+    X = np.zeros((points * classes, 2))
+    y = np.zeros(points * classes, dtype='uint8')
+    for class_number in range(classes):
+        ix = range(points * class_number, points * (class_number + 1))
+        r = np.linspace(0.0, 1, points)
+        t = np.linspace(class_number * 4, (class_number + 1) * 4, points) + np.random.randn(points) * 0.2
+        X[ix] = np.c_[r * np.sin(t * 2.5), r * np.cos(t * 2.5)]
+        y[ix] = class_number
+    return X, y
 
 class _DualLoad:
     def __get__(self, instance, owner):
@@ -243,7 +250,8 @@ for _cls in (NeuralNetwork.Layer_Dense, NeuralNetwork.Activation_ReLU, NeuralNet
 
 
 if __name__ == "__main__":
-    X, y = spiral_data(samples=100, classes=3)
+    np.random.seed(0)
+    X, y = spiral_data(100, 3)
 
     nn = NeuralNetwork([2, 64, 3])
     nn.train(X, y, epochs=1001, print_every=200)

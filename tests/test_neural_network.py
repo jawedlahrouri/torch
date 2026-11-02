@@ -58,7 +58,7 @@ def test_forward_pass_chess_dimensions():
 
 
 def test_train_step_and_convergence():
-    X, y = spiral_data(samples=50, classes=3)
+    X, y = spiral_data(50, 3)
     net = NeuralNetwork(
         layer_sizes=[2, 32, 3],
         loss=Activation_Softmax_Loss_CategoricalCrossentropy(),
@@ -74,7 +74,7 @@ def test_train_step_and_convergence():
 
 
 def test_predict():
-    X, _ = spiral_data(samples=10, classes=3)
+    X, _ = spiral_data(10, 3)
     net = NeuralNetwork(
         layer_sizes=[2, 16, 3],
         loss=Activation_Softmax_Loss_CategoricalCrossentropy()
