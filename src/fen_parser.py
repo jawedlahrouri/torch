@@ -1,61 +1,90 @@
 import numpy as np
 
 PIECES = "PNBRQKpnbrqk"
+PIECE_INDEX = {piece: i for i, piece in enumerate(PIECES)}
+BOARD_SIZE = 8
+N_FEATURES = BOARD_SIZE * BOARD_SIZE * len(PIECES)
+EMPTY_RUN = {str(n): n for n in range(1, BOARD_SIZE + 1)}
+
 LABELS = ["Nothing", "Check", "Checkmate"]
+LABEL_INDEX = {label: i for i, label in enumerate(LABELS)}
+NOTHING = LABELS[0]
+
+CHECKING_COLOR = {"w": "Black", "b": "White"}
+OUTPUT_COLOR = False  # True ("Check White")
+
+def _active_indices(fen_board: str) -> list:
+    ranks = fen_board.split('/')
+    if len(ranks) != BOARD_SIZE:
+        raise ValueError(f"Invalid FEN: expected {BOARD_SIZE} ranks.")
+    indices = []
+    for rank_idx, rank in enumerate(ranks):
+        file_idx = 0
+        for char in rank:
+            empty_squares = EMPTY_RUN.get(char)
+            piece_idx = PIECE_INDEX.get(char)
+            if empty_squares is not None:
+                file_idx += empty_squares
+            elif piece_idx is not None:
+                if file_idx >= BOARD_SIZE:
+                    raise ValueError("Invalid FEN: rank too long.")
+                square = rank_idx * BOARD_SIZE + file_idx
+                indices.append(square * len(PIECES) + piece_idx)
+                file_idx += 1
+            else:
+                raise ValueError(f"Invalid FEN character: {char!r}")
+        if file_idx != BOARD_SIZE:
+            raise ValueError(f"Invalid FEN: each rank must have {BOARD_SIZE} squares.")
+    return indices
 
 def fen_to_vector(fen_board: str) -> np.ndarray:
-    vec = np.zeros(768, dtype=np.float32)
-    square_idx = 0
-    for char in fen_board:
-        if char == '/':
-            continue
-        elif char.isdigit():
-            square_idx += int(char)
-        elif char in PIECES:
-            if square_idx >= 64:
-                raise ValueError("Too many squares in FEN.")
-            vec[square_idx * 12 + PIECES.index(char)] = 1.0
-            square_idx += 1
-        else:
-            raise ValueError(f"Invalid piece: {char}")
-    if square_idx != 64:
-        raise ValueError("Invalid number of squares.")
-    return vec
+    vector = np.zeros(N_FEATURES, dtype=np.float32)
+    vector[_active_indices(fen_board)] = 1.0
+    return vector
+
+def format_label(label_idx: int, side_to_move) -> str:
+    label = LABELS[label_idx]
+    color = CHECKING_COLOR.get(side_to_move)
+    if label == NOTHING or not OUTPUT_COLOR or color is None:
+        return label
+    return f"{label} {color}"
+
+def _parse_line(fields: list, is_train: bool):
+    indices = _active_indices(fields[0])
+    side_to_move = fields[1] if len(fields) > 1 and fields[1] in CHECKING_COLOR else None
+    label_idx = None
+    if is_train:
+        label_ids = [LABEL_INDEX[field] for field in fields[1:] if field in LABEL_INDEX]
+        if len(label_ids) != 1:
+            raise ValueError("missing or ambiguous label")
+        label_idx = label_ids[0]
+    return indices, side_to_move, label_idx
 
 def load_dataset(filepath: str, is_train: bool):
-    X_list = []
-    y_list = []
+    sample_rows = []
+    feature_cols = []
+    labels = []
+    sides = []
 
-    with open(filepath, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
+    with open(filepath, "r", encoding="utf-8") as file:
+        for line_no, line in enumerate(file, 1):
+            fields = line.split()
+            if not fields:
                 continue
-            parts = line.split()
-            if len(parts) < 1:
-                continue
-
-            fen_board = parts[0]
-            X_list.append(fen_to_vector(fen_board))
-
+            try:
+                indices, side_to_move, label_idx = _parse_line(fields, is_train)
+            except ValueError as err:
+                raise ValueError(f"line {line_no}: {err}") from None
+            sample_rows.extend([len(sides)] * len(indices))
+            feature_cols.extend(indices)
+            sides.append(side_to_move)
             if is_train:
-                if len(parts) < 2:
-                    raise ValueError(f"Missing label in line: {line}")
-                label = parts[-1]
-                if "Checkmate" in line:
-                    label = "Checkmate"
-                elif "Check" in line:
-                    label = "Check"
-                elif "Nothing" in line:
-                    label = "Nothing"
+                labels.append(label_idx)
 
-                if label not in LABELS:
-                    raise ValueError(f"Unknown label: {label}")
-                y_list.append(LABELS.index(label))
-
-    if not X_list:
+    if not sides:
         raise ValueError("Dataset is empty.")
 
-    X = np.array(X_list, dtype=np.float32)
-    y = np.array(y_list, dtype=np.int64) if is_train else None
-    return X, y
+    X = np.zeros((len(sides), N_FEATURES), dtype=np.float32)
+    X[sample_rows, feature_cols] = 1.0
+    y = np.array(labels, dtype=np.int64) if is_train else None
+    return X, y, sides
