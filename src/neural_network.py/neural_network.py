@@ -172,11 +172,23 @@ class NeuralNetwork:
 
         return loss, accuracy
 
-    def train(self, X, y, epochs=1001, print_every=200):
+    def train(self, X, y, epochs=1001, batch_size=64, print_every=200):
         for epoch in range(epochs):
-            loss, accuracy = self.train_step(X, y)
+            indices = np.random.permutation(len(X))
+            X_shuffled, y_shuffled = X[indices], y[indices]
+
+            batch_losses, batch_accuracies = [], []
+            for start in range(0, len(X), batch_size):
+                batch_X = X_shuffled[start:start + batch_size]
+                batch_y = y_shuffled[start:start + batch_size]
+                loss, accuracy = self.train_step(batch_X, batch_y)
+                batch_losses.append(loss)
+                batch_accuracies.append(accuracy)
+
             if print_every and epoch % print_every == 0:
-                print(f"epoch: {epoch:4d} | loss: {loss:.4f} | acc: {accuracy:.4f} | lr: {self.optimizer.current_learning_rate:.4f}")
+                avg_loss = np.mean(batch_losses)
+                avg_acc = np.mean(batch_accuracies)
+                print(f"epoch: {epoch:4d} | loss: {avg_loss:.4f} | acc: {avg_acc:.4f} | lr: {self.optimizer.current_learning_rate:.4f}")
 
     def predict(self, X):
         output = self.forward(X)
@@ -243,8 +255,8 @@ class NeuralNetwork:
     load = _DualLoad()
 
 
-for _cls in (NeuralNetwork.Layer_Dense, NeuralNetwork.Activation_ReLU, NeuralNetwork.Activation_Softmax,
-            NeuralNetwork.Loss, NeuralNetwork.Loss_CategoricalCrossentropy,
+for _cls in (NeuralNetwork.Layer_Dense, NeuralNetwork.Activation_ReLU, NeuralNetwork.Layer_Dropout,
+            NeuralNetwork.Activation_Softmax, NeuralNetwork.Loss, NeuralNetwork.Loss_CategoricalCrossentropy,
             NeuralNetwork.Activation_Softmax_Loss_CategoricalCrossentropy, NeuralNetwork.Optimizer_SGD):
     globals()[_cls.__name__] = _cls
 
