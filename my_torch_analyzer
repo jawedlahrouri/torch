@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+import sys
+import os
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [os.path.join(ROOT, "src"), os.path.join(ROOT, "src", "neural_network.py")]
+import numpy as np
+from neural_network import NeuralNetwork
+from fen_parser import load_dataset, format_label, LABELS, N_FEATURES
+
+EXIT_ERROR = 84
+EPOCHS = 500
+PRINT_EVERY = 50
+PREDICT_CHUNK = 4096
+
+
+def fail(msg: str):
+    sys.stderr.write(f"Error: {msg}\n")
+    sys.exit(EXIT_ERROR)
+
+def print_help():
+    print(
+        "USAGE\n"
+        "        ./my_torch_analyzer [--predict | --train [--save SAVEFILE]] LOADFILE CHESSFILE\n\n"
+        "DESCRIPTION\n"
+        "        --train         Launch the neural network in training mode. Each chessboard in FILE must\n"
+        "contain inputs to send to the neural network in FEN notation and the expected output separated by\n"
+        "space. If specified, the newly trained neural network will be saved in SAVEFILE. Otherwise,\n"
+        "it will be saved in the original LOADFILE.\n\n"
+        "        --predict       Launch the neural network in prediction mode. Each chessboard in FILE must\n"
+        "contain inputs to send to the neural network in FEN notation, and optionally an expected output.\n\n"
+        "        --save          Save neural network into SAVEFILE. Only works in train mode.\n\n"
+        "        LOADFILE        File containing an artificial neural network\n"
+        "        CHESSFILE       File containing chessboards"
+    )
+
+def parse_args(args):
+    mode = None
+    savefile = None
+    positional = []
+
+    remaining = iter(args)
+    for arg in remaining:
+        if arg in ("--train", "--predict"):
+            if mode is not None:
+                fail("Conflicting modes.")
+            mode = arg[2:]
+        elif arg == "--save":
+            if savefile is not None:
+                fail("--save specified twice.")
+            savefile = next(remaining, None)
+            if savefile is None:
+                fail("Missing argument for --save.")
+        elif arg.startswith("-"):
+            fail(f"Unknown flag: {arg}")
+        else:
+            positional.append(arg)
+
+    return mode, savefile, positional
+
+def check_writable(path):
+    directory = os.path.dirname(os.path.abspath(path))
+    if os.path.isdir(path) or not os.access(directory, os.W_OK) \
+            or (os.path.exists(path) and not os.access(path, os.W_OK)):
+        fail(f"Cannot write to {path}")
+
+def weights_are_finite(layers):
+    return all(np.isfinite(layer.weights).all() and np.isfinite(layer.biases).all() for layer in layers)
+
+def check_network(nn, n_inputs, n_outputs):
+    layers = nn.trainable_layers
+    if not layers:
+        raise ValueError("Invalid network: no dense layer.")
+    for previous, following in zip(layers, layers[1:]):
+        if previous.weights.shape[1] != following.weights.shape[0]:
+            raise ValueError("Invalid network: layer sizes do not chain.")
+    if not weights_are_finite(layers):
+        raise ValueError("Invalid network: non-finite weights (NaN or inf).")
+    actual_inputs, actual_outputs = layers[0].weights.shape[0], layers[-1].weights.shape[1]
+    if actual_inputs != n_inputs or actual_outputs != n_outputs:
+        raise ValueError(
+            f"Network has {actual_inputs} inputs and {actual_outputs} outputs, "
+            f"expected {n_inputs} and {n_outputs}.")
+
+def save_atomic(nn, path):
+    directory, name = os.path.split(os.path.abspath(path))
+    tmp_path = os.path.join(directory, ".tmp_" + name)
+    try:
+        nn.save(tmp_path)
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+def write_stdout(text):
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(0)
+
+def run_train(nn, X, y, target_save):
+    nn.train(X, y, epochs=EPOCHS, print_every=PRINT_EVERY)
+    if not weights_are_finite(nn.trainable_layers):
+        fail("Training diverged (NaN weights): network not saved.")
+    save_atomic(nn, target_save)
+
+def run_predict(nn, X, colors):
+    predictions = np.concatenate([nn.predict(X[start:start + PREDICT_CHUNK])
+                                for start in range(0, len(X), PREDICT_CHUNK)])
+    write_stdout("".join(format_label(int(label_index), color) + "\n"
+                        for label_index, color in zip(predictions, colors)))
+
+def main():
+    args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        print_help()
+        sys.exit(0)
+
+    mode, savefile, positional = parse_args(args)
+
+    if mode is None:
+        fail("Must specify --train or --predict.")
+    if mode == "predict" and savefile is not None:
+        fail("--save cannot be used with --predict.")
+    if len(positional) != 2:
+        fail("Expected LOADFILE and CHESSFILE.")
+
+    loadfile, chessfile = positional
+    if not os.path.isfile(loadfile):
+        fail(f"LOADFILE does not exist: {loadfile}")
+    if not os.path.isfile(chessfile):
+        fail(f"CHESSFILE does not exist: {chessfile}")
+
+    target_save = savefile if savefile is not None else loadfile
+    if mode == "train":
+        check_writable(target_save)
+
+    try:
+        nn = NeuralNetwork.load(loadfile)
+        check_network(nn, N_FEATURES, len(LABELS))
+        X, y, colors = load_dataset(chessfile, is_train=(mode == "train"))
+
+        if mode == "train":
+            run_train(nn, X, y, target_save)
+        else:
+            run_predict(nn, X, colors)
+    except KeyboardInterrupt:
+        fail("Interrupted.")
+    except Exception as error:
+        fail(str(error))
+
+if __name__ == "__main__":
+    main()

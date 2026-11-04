@@ -2,4 +2,5 @@
 
 Membres associes a ce projet via Zeus :
 
-_Aucun membre associe pour l'instant._
+[Jawed Lahrouri](https://github.com/jawedlahrouri) Créateur du dépôt
+[Lucas Lhomme](https://github.com/LucasLhomme) Maintainer du dépôt
