@@ -10,7 +10,6 @@ ANALYZER = str(ROOT / "my_torch_analyzer")
 GENERATOR = str(ROOT / "my_torch_generator")
 
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "src" / "neural_network.py"))
 from neural_network import NeuralNetwork  # noqa: E402
 
 LABELS = {"Nothing", "Check", "Checkmate"}

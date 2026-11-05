@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 # Ajout du chemin du module pour importation directe
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src" / "neural_network.py"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from neural_network import (
     Layer_Dense,

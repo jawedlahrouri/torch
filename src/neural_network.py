@@ -141,7 +141,19 @@ class NeuralNetwork:
         def post_update_params(self):
             self.iterations += 1
 
-    def __init__(self, layer_sizes=None, loss=None, loss_activation=None, optimizer=None):
+    _DEFAULT_CONFIG = {
+        "learning_rate": 0.02,
+        "momentum": 0.9,
+        "decay": 1e-4,
+        "batch_size": 256,
+        "epochs": 100,
+        "dropout": 0.0,
+        "print_every": 5,
+    }
+
+    def __init__(self, layer_sizes=None, loss=None, loss_activation=None, optimizer=None, config=None):
+        self.config = {**NeuralNetwork._DEFAULT_CONFIG, **(config or {})}
+
         self.layers = []
         if layer_sizes:
             if isinstance(layer_sizes[0], int):
@@ -149,12 +161,18 @@ class NeuralNetwork:
                     self.layers.append(NeuralNetwork.Layer_Dense(layer_sizes[i], layer_sizes[i + 1]))
                     if i < len(layer_sizes) - 2:
                         self.layers.append(NeuralNetwork.Activation_ReLU())
+                        if self.config["dropout"] > 0.0:
+                            self.layers.append(NeuralNetwork.Layer_Dropout(self.config["dropout"]))
             else:
                 self.layers = list(layer_sizes)
 
         self.loss = loss or loss_activation or NeuralNetwork.Activation_Softmax_Loss_CategoricalCrossentropy()
         self.loss_activation = self.loss
-        self.optimizer = optimizer or NeuralNetwork.Optimizer_SGD(learning_rate=1.0, decay=1e-3, momentum=0.9)
+        self.optimizer = optimizer or NeuralNetwork.Optimizer_SGD(
+            learning_rate=self.config["learning_rate"],
+            decay=self.config["decay"],
+            momentum=self.config["momentum"],
+        )
 
     def add(self, layer):
         self.layers.append(layer)
@@ -194,7 +212,10 @@ class NeuralNetwork:
 
         return loss, accuracy
 
-    def train(self, X, y, epochs=1001, batch_size=64, print_every=200):
+    def train(self, X, y, epochs=None, batch_size=None, print_every=None):
+        epochs = epochs if epochs is not None else self.config["epochs"]
+        batch_size = batch_size if batch_size is not None else self.config["batch_size"]
+        print_every = print_every if print_every is not None else self.config["print_every"]
         for epoch in range(epochs):
             indices = np.random.permutation(len(X))
             X_shuffled, y_shuffled = X[indices], y[indices]
@@ -240,11 +261,13 @@ class NeuralNetwork:
                     })
                 else:
                     json_structure.append(item)
+            payload = {"config": self.config, "layers": json_structure}
             with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(json_structure, f, indent=2)
+                json.dump(payload, f, indent=2)
         else:
+            payload = {"config": self.config, "layers": structure}
             with open(filepath, "wb") as f:
-                pickle.dump(structure, f)
+                pickle.dump(payload, f)
 
     @classmethod
     def _load_from_file(cls, filepath):
@@ -252,13 +275,27 @@ class NeuralNetwork:
         return instance._load_into_self(filepath)
 
     def _load_into_self(self, filepath):
-        structure = None
+        raw = None
         try:
             with open(filepath, "rb") as f:
-                structure = pickle.load(f)
+                raw = pickle.load(f)
         except Exception:
             with open(filepath, "r", encoding="utf-8") as f:
-                structure = json.load(f)
+                raw = json.load(f)
+
+        if isinstance(raw, dict) and "layers" in raw:
+            structure = raw["layers"]
+            saved_config = raw.get("config", {})
+            self.config = {**NeuralNetwork._DEFAULT_CONFIG, **saved_config}
+        else:
+            structure = raw
+            if not hasattr(self, "config"):
+                self.config = dict(NeuralNetwork._DEFAULT_CONFIG)
+        self.optimizer = NeuralNetwork.Optimizer_SGD(
+            learning_rate=self.config["learning_rate"],
+            decay=self.config["decay"],
+            momentum=self.config["momentum"],
+        )
 
         self.layers = []
         for item in structure:
