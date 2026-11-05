@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import sys
 import os
+import json
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [os.path.join(ROOT, "src"), os.path.join(ROOT, "src", "neural_network.py")]
+sys.path.insert(0, os.path.join(ROOT, "src"))
 from neural_network import NeuralNetwork
 
 EXIT_ERROR = 84
@@ -24,15 +25,29 @@ def print_help():
         "        nb_i            Number of neural networks to generate based on the configuration file."
     )
 
-def parse_config(filepath: str) -> list[int]:
+def parse_config(filepath: str) -> tuple[list[int], dict]:
+    """Return (layer_sizes, hyperparams_config).
+
+    Accepts two formats:
+    - JSON: {"layers": [768, 256, 128, 3], "learning_rate": 0.02, ...}
+    - Plain text: space/comma-separated integers e.g. "768 256 128 3"
+    """
     try:
-        with open(filepath, encoding="utf-8") as file:
-            layers = [int(token) for token in file.read().replace(",", " ").split()]
+        with open(filepath, encoding="utf-8") as fh:
+            content = fh.read().strip()
+        if content.startswith("{"):
+            data = json.loads(content)
+            layers = [int(x) for x in data.get("layers", [])]
+            config = {k: v for k, v in data.items() if k != "layers"}
+        else:
+            layers = [int(token) for token in content.replace(",", " ").split()]
+            config = {}
+
         if len(layers) < MIN_LAYERS:
             raise ValueError(f"A network must have at least {MIN_LAYERS} layers.")
         if any(size <= 0 for size in layers):
             raise ValueError("Layer sizes must be positive.")
-        return layers
+        return layers, config
     except Exception as error:
         fail(f"Invalid config file {filepath}: {error}")
 
@@ -58,19 +73,18 @@ def main():
         if count <= 0:
             fail(f"Invalid number: {count_text}")
 
-        layers = parse_config(conf_path)
+        layers, config = parse_config(conf_path)
         base_name = os.path.splitext(os.path.basename(conf_path))[0]
         if base_name in seen_names:
             fail(f"Output name collision: several config files named '{base_name}'.")
         seen_names.add(base_name)
-        jobs.append((layers, base_name, count))
+        jobs.append((layers, config, base_name, count))
 
-    # everything is validated: nothing is written if one pair is invalid
-    for layers, base_name, count in jobs:
+    for layers, config, base_name, count in jobs:
         for index in range(1, count + 1):
             out_filename = f"{base_name}_{index}.nn"
             try:
-                NeuralNetwork(layers).save(out_filename)
+                NeuralNetwork(layers, config=config).save(out_filename)
             except Exception as error:
                 fail(f"Failed to generate {out_filename}: {error}")
 

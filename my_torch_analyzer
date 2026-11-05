@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 import sys
 import os
-
 ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [os.path.join(ROOT, "src"), os.path.join(ROOT, "src", "neural_network.py")]
+sys.path.insert(0, os.path.join(ROOT, "src"))
 import numpy as np
 from neural_network import NeuralNetwork
 from fen_parser import load_dataset, format_label, LABELS, N_FEATURES
 
 EXIT_ERROR = 84
-EPOCHS = 500
-PRINT_EVERY = 50
 PREDICT_CHUNK = 4096
 
 
@@ -101,7 +98,7 @@ def write_stdout(text):
         sys.exit(0)
 
 def run_train(nn, X, y, target_save):
-    nn.train(X, y, epochs=EPOCHS, print_every=PRINT_EVERY)
+    nn.train(X, y)
     if not weights_are_finite(nn.trainable_layers):
         fail("Training diverged (NaN weights): network not saved.")
     save_atomic(nn, target_save)
