@@ -52,15 +52,16 @@ class NeuralNetwork:
             self.dinputs[self.inputs <= 0] = 0
 
     class Layer_Dropout:
-        def __init__(self, rate):
-            self.rate = 1 - rate
+        def __init__(self, rate=0.2):
+            self.drop_rate = rate
+            self.keep_rate = 1.0 - rate
 
         def forward(self, inputs, training=True):
             self.inputs = inputs
-            if not training:
+            if not training or self.drop_rate <= 0:
                 self.output = inputs.copy()
                 return
-            self.binary_mask = np.random.binomial(1, self.rate, size=inputs.shape) / self.rate
+            self.binary_mask = np.random.binomial(1, self.keep_rate, size=inputs.shape) / self.keep_rate
             self.output = inputs * self.binary_mask
 
         def backward(self, dvalues):
@@ -111,7 +112,7 @@ class NeuralNetwork:
             self.dinputs /= samples
 
     class Optimizer_SGD:
-        def __init__(self, learning_rate=1.0, decay=0.0, momentum=0.0):
+        def __init__(self, learning_rate=0.01, decay=0.0, momentum=0.0):
             self.learning_rate = learning_rate
             self.current_learning_rate = learning_rate
             self.decay = decay
@@ -162,10 +163,13 @@ class NeuralNetwork:
     def trainable_layers(self):
         return [layer for layer in self.layers if isinstance(layer, NeuralNetwork.Layer_Dense)]
 
-    def forward(self, inputs):
+    def forward(self, inputs, training=True):
         output = inputs
         for layer in self.layers:
-            layer.forward(output)
+            if isinstance(layer, NeuralNetwork.Layer_Dropout):
+                layer.forward(output, training=training)
+            else:
+                layer.forward(output)
             output = layer.output
         return output
 
@@ -176,7 +180,7 @@ class NeuralNetwork:
         return dvalues
 
     def train_step(self, X, y):
-        loss = self.loss.forward(self.forward(X), y)
+        loss = self.loss.forward(self.forward(X, training=True), y)
         y_true = np.argmax(y, axis=1) if y.ndim == 2 else y
         accuracy = np.mean(np.argmax(self.loss.output, axis=1) == y_true)
 
@@ -209,7 +213,7 @@ class NeuralNetwork:
                 print(f"epoch: {epoch:4d} | loss: {avg_loss:.4f} | acc: {avg_acc:.4f} | lr: {self.optimizer.current_learning_rate:.4f}")
 
     def predict(self, X):
-        output = self.forward(X)
+        output = self.forward(X, training=False)
         self.loss.activation.forward(output)
         return np.argmax(self.loss.activation.output, axis=1)
 
