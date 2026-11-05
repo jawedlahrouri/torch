@@ -26,8 +26,11 @@ class _DualLoad:
 
 class NeuralNetwork:
     class Layer_Dense:
-        def __init__(self, n_inputs, n_neurons):
-            self.weights = 0.01 * np.random.randn(n_inputs, n_neurons)
+        def __init__(self, n_inputs, n_neurons, init_method="he"):
+            if init_method == "xavier":
+                self.weights = np.random.randn(n_inputs, n_neurons) * np.sqrt(1.0 / n_inputs)
+            else:
+                self.weights = np.random.randn(n_inputs, n_neurons) * np.sqrt(2.0 / n_inputs)
             self.biases = np.zeros((1, n_neurons))
 
         def forward(self, inputs):
@@ -47,6 +50,22 @@ class NeuralNetwork:
         def backward(self, dvalues):
             self.dinputs = dvalues.copy()
             self.dinputs[self.inputs <= 0] = 0
+
+    class Layer_Dropout:
+        def __init__(self, rate=0.2):
+            self.drop_rate = rate
+            self.keep_rate = 1.0 - rate
+
+        def forward(self, inputs, training=True):
+            self.inputs = inputs
+            if not training or self.drop_rate <= 0:
+                self.output = inputs.copy()
+                return
+            self.binary_mask = np.random.binomial(1, self.keep_rate, size=inputs.shape) / self.keep_rate
+            self.output = inputs * self.binary_mask
+
+        def backward(self, dvalues):
+            self.dinputs = dvalues * self.binary_mask
 
     class Activation_Softmax:
         def forward(self, inputs):
@@ -93,7 +112,7 @@ class NeuralNetwork:
             self.dinputs /= samples
 
     class Optimizer_SGD:
-        def __init__(self, learning_rate=1.0, decay=0.0, momentum=0.0):
+        def __init__(self, learning_rate=0.01, decay=0.0, momentum=0.0):
             self.learning_rate = learning_rate
             self.current_learning_rate = learning_rate
             self.decay = decay
@@ -144,10 +163,13 @@ class NeuralNetwork:
     def trainable_layers(self):
         return [layer for layer in self.layers if isinstance(layer, NeuralNetwork.Layer_Dense)]
 
-    def forward(self, inputs):
+    def forward(self, inputs, training=True):
         output = inputs
         for layer in self.layers:
-            layer.forward(output)
+            if isinstance(layer, NeuralNetwork.Layer_Dropout):
+                layer.forward(output, training=training)
+            else:
+                layer.forward(output)
             output = layer.output
         return output
 
@@ -158,7 +180,7 @@ class NeuralNetwork:
         return dvalues
 
     def train_step(self, X, y):
-        loss = self.loss.forward(self.forward(X), y)
+        loss = self.loss.forward(self.forward(X, training=True), y)
         y_true = np.argmax(y, axis=1) if y.ndim == 2 else y
         accuracy = np.mean(np.argmax(self.loss.output, axis=1) == y_true)
 
@@ -172,14 +194,26 @@ class NeuralNetwork:
 
         return loss, accuracy
 
-    def train(self, X, y, epochs=1001, print_every=200):
+    def train(self, X, y, epochs=1001, batch_size=64, print_every=200):
         for epoch in range(epochs):
-            loss, accuracy = self.train_step(X, y)
+            indices = np.random.permutation(len(X))
+            X_shuffled, y_shuffled = X[indices], y[indices]
+
+            batch_losses, batch_accuracies = [], []
+            for start in range(0, len(X), batch_size):
+                batch_X = X_shuffled[start:start + batch_size]
+                batch_y = y_shuffled[start:start + batch_size]
+                loss, accuracy = self.train_step(batch_X, batch_y)
+                batch_losses.append(loss)
+                batch_accuracies.append(accuracy)
+
             if print_every and epoch % print_every == 0:
-                print(f"epoch: {epoch:4d} | loss: {loss:.4f} | acc: {accuracy:.4f} | lr: {self.optimizer.current_learning_rate:.4f}")
+                avg_loss = np.mean(batch_losses)
+                avg_acc = np.mean(batch_accuracies)
+                print(f"epoch: {epoch:4d} | loss: {avg_loss:.4f} | acc: {avg_acc:.4f} | lr: {self.optimizer.current_learning_rate:.4f}")
 
     def predict(self, X):
-        output = self.forward(X)
+        output = self.forward(X, training=False)
         self.loss.activation.forward(output)
         return np.argmax(self.loss.activation.output, axis=1)
 
@@ -243,8 +277,8 @@ class NeuralNetwork:
     load = _DualLoad()
 
 
-for _cls in (NeuralNetwork.Layer_Dense, NeuralNetwork.Activation_ReLU, NeuralNetwork.Activation_Softmax,
-            NeuralNetwork.Loss, NeuralNetwork.Loss_CategoricalCrossentropy,
+for _cls in (NeuralNetwork.Layer_Dense, NeuralNetwork.Activation_ReLU, NeuralNetwork.Layer_Dropout,
+            NeuralNetwork.Activation_Softmax, NeuralNetwork.Loss, NeuralNetwork.Loss_CategoricalCrossentropy,
             NeuralNetwork.Activation_Softmax_Loss_CategoricalCrossentropy, NeuralNetwork.Optimizer_SGD):
     globals()[_cls.__name__] = _cls
 
