@@ -11,7 +11,7 @@ LABEL_INDEX = {label: i for i, label in enumerate(LABELS)}
 NOTHING = LABELS[0]
 
 CHECKING_COLOR = {"w": "Black", "b": "White"}
-OUTPUT_COLOR = False  # True ("Check White")
+OUTPUT_COLOR = True  # True ("Check White")
 
 def _active_indices(fen_board: str) -> list:
     ranks = fen_board.split('/')
@@ -88,3 +88,45 @@ def load_dataset(filepath: str, is_train: bool):
     X[sample_rows, feature_cols] = 1.0
     y = np.array(labels, dtype=np.int64) if is_train else None
     return X, y, sides
+
+def flip_board(fen_board: str) -> str:
+    ranks = fen_board.split('/')
+    if len(ranks) != BOARD_SIZE:
+        raise ValueError(f"Invalid FEN: expected {BOARD_SIZE} ranks.")
+    return "/".join(rank.swapcase() for rank in reversed(ranks))
+
+def flip_castling(castling: str) -> str:
+    if castling == "-":
+        return "-"
+    swapped = castling.swapcase()
+    order = "KQkq"
+    result = "".join(c for c in order if c in swapped)
+    return result if result else "-"
+
+def flip_en_passant(ep: str) -> str:
+    if ep == "-" or len(ep) != 2:
+        return ep
+    return f"{ep[0]}{9 - int(ep[1])}"
+
+def flip_fen_line(line: str) -> str:
+    fields = line.strip().split()
+    if not fields:
+        return ""
+    fields[0] = flip_board(fields[0])
+    if len(fields) >= 6 and fields[1] in ("w", "b"):
+        fields[1] = "b" if fields[1] == "w" else "w"
+        fields[2] = flip_castling(fields[2])
+        fields[3] = flip_en_passant(fields[3])
+        label_start = 6
+    else:
+        label_start = 1
+        if len(fields) > 1 and fields[1] in ("w", "b"):
+            fields[1] = "b" if fields[1] == "w" else "w"
+            label_start = 2
+    for i in range(label_start, len(fields)):
+        if fields[i] == "White":
+            fields[i] = "Black"
+        elif fields[i] == "Black":
+            fields[i] = "White"
+    return " ".join(fields)
+
