@@ -122,3 +122,16 @@ def test_save_and_load_json(tmp_path):
     loaded_net = NeuralNetwork.load(filepath)
     loaded_output = loaded_net.forward(X)
     assert np.allclose(original_output, loaded_output)
+
+
+def test_save_nn_is_readable_json(tmp_path):
+    import json
+    filepath = str(tmp_path / "model.nn")
+    net = NeuralNetwork([2, 16, 8, 3])
+    net.save(filepath)
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert "layers" in data
+    assert "config" in data
+    assert len(data["layers"]) == len(net.layers)

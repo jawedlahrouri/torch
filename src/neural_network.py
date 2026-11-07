@@ -239,35 +239,41 @@ class NeuralNetwork:
         return np.argmax(self.loss.activation.output, axis=1)
 
     def save(self, filepath):
-        structure = []
-        for layer in self.layers:
-            if isinstance(layer, NeuralNetwork.Layer_Dense):
-                structure.append({
-                    "type": "Layer_Dense",
-                    "weights": layer.weights,
-                    "biases": layer.biases,
-                })
-            else:
-                structure.append({"type": layer.__class__.__name__})
-
-        if str(filepath).endswith(".json"):
-            json_structure = []
-            for item in structure:
-                if item["type"] == "Layer_Dense":
-                    json_structure.append({
+        if str(filepath).endswith((".pkl", ".pickle")):
+            structure = []
+            for layer in self.layers:
+                if isinstance(layer, NeuralNetwork.Layer_Dense):
+                    structure.append({
                         "type": "Layer_Dense",
-                        "weights": item["weights"].tolist(),
-                        "biases": item["biases"].tolist(),
+                        "weights": layer.weights,
+                        "biases": layer.biases,
                     })
                 else:
-                    json_structure.append(item)
-            payload = {"config": self.config, "layers": json_structure}
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
-        else:
+                    structure.append({"type": layer.__class__.__name__})
             payload = {"config": self.config, "layers": structure}
             with open(filepath, "wb") as f:
                 pickle.dump(payload, f)
+            return
+
+        json_structure = []
+        for layer in self.layers:
+            if isinstance(layer, NeuralNetwork.Layer_Dense):
+                json_structure.append({
+                    "type": "Layer_Dense",
+                    "weights": layer.weights.tolist(),
+                    "biases": layer.biases.tolist(),
+                })
+            elif isinstance(layer, NeuralNetwork.Layer_Dropout):
+                json_structure.append({
+                    "type": "Layer_Dropout",
+                    "rate": layer.drop_rate,
+                })
+            else:
+                json_structure.append({"type": layer.__class__.__name__})
+
+        payload = {"config": self.config, "layers": json_structure}
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
 
     @classmethod
     def _load_from_file(cls, filepath):
@@ -277,11 +283,11 @@ class NeuralNetwork:
     def _load_into_self(self, filepath):
         raw = None
         try:
-            with open(filepath, "rb") as f:
-                raw = pickle.load(f)
-        except Exception:
             with open(filepath, "r", encoding="utf-8") as f:
                 raw = json.load(f)
+        except Exception:
+            with open(filepath, "rb") as f:
+                raw = pickle.load(f)
 
         if isinstance(raw, dict) and "layers" in raw:
             structure = raw["layers"]
@@ -307,6 +313,9 @@ class NeuralNetwork:
                 dense.weights = weights
                 dense.biases = biases
                 self.layers.append(dense)
+            elif layer_type == "Layer_Dropout":
+                rate = item.get("rate", self.config.get("dropout", 0.2))
+                self.layers.append(NeuralNetwork.Layer_Dropout(rate=rate))
             elif hasattr(NeuralNetwork, layer_type):
                 self.layers.append(getattr(NeuralNetwork, layer_type)())
         return self
