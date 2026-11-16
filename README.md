@@ -1,3 +1,5 @@
+[![Academic Year](https://img.shields.io/badge/Epitech-Tek3-purple?style=for-the-badge&logo=epitech&logoColor=white)](https://www.epitech.eu/)
+
 # MyTorch — Neural Network from Scratch
 
 A modular artificial neural network implementation built from scratch in **Python** using only **NumPy**, without any high-level machine learning frameworks (no PyTorch, TensorFlow, etc.).
